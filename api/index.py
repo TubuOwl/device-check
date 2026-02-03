@@ -21,11 +21,7 @@ def check_device():
     except:
         return Response(status=204)
 
-    username = data.get("name")
     device_id = data.get("id")
-    ua = data.get("ua")
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
-
     if not device_id:
         return Response(status=204)
 
@@ -36,19 +32,18 @@ def check_device():
         INSERT INTO device_records (username, device_id, user_agent, ip_address)
         VALUES (%s, %s, %s, %s)
         ON CONFLICT (device_id) DO NOTHING
-    """, (username, device_id, ua, ip))
+    """, (
+        data.get("name"),
+        device_id,
+        data.get("ua"),
+        request.headers.get("X-Forwarded-For", request.remote_addr)
+    ))
 
     conn.commit()
     cur.close()
     conn.close()
 
-    # === RETURN IMAGE (ANTI ORB) ===
-    pixel = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIW2P4//8/AwAI/AL+KD7XAAAAAElFTkSuQmCC"
-    )
-
-    return Response(pixel, mimetype="image/png")
-
+    return Response(b"", status=204)
 
 # === GET DATA JSON ===
 @app.route("/api/whitelist")
