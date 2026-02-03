@@ -11,26 +11,33 @@ def index():
         db_url = os.environ.get("DATABASE_URL")
         if not db_url:
             return jsonify({
-                "status": "ERROR",
-                "detail": "DATABASE_URL not set"
+                "ok": False,
+                "error": "DATABASE_URL not set"
             }), 500
 
-        # paksa ssl (Neon wajib)
+        # Neon WAJIB SSL
         if "sslmode=" not in db_url:
             db_url += ("&" if "?" in db_url else "?") + "sslmode=require"
 
-        # COBA CONNECT
-        conn = psycopg2.connect(db_url, connect_timeout=5)
+        # CONNECT TEST
+        conn = psycopg2.connect(
+            db_url,
+            connect_timeout=5
+        )
+        cur = conn.cursor()
+        cur.execute("SELECT 1;")
+        cur.fetchone()
+        cur.close()
         conn.close()
 
         return jsonify({
-            "status": "OK",
-            "message": "Connected to PostgreSQL successfully"
+            "ok": True,
+            "message": "Flask connected to Neon Postgres"
         })
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({
-            "status": "ERROR",
-            "detail": str(e)
+            "ok": False,
+            "error": str(e)
         }), 500
