@@ -53,6 +53,33 @@ def check():
         print("ERROR:", e)
         return "", 204
 
+@app.route("/api/whitelist")
+def whitelist():
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT username, device_id, user_agent, ip_address, created_at
+        FROM device_records
+        ORDER BY created_at DESC
+    """)
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    result = []
+    for r in rows:
+        result.append({
+            "username": r[0],
+            "device_id": r[1],
+            "user_agent": r[2],
+            "ip": r[3],
+            "created_at": r[4].isoformat()
+        })
+
+    return jsonify(result)
+
 
 if __name__ == "__main__":
     app.run()
