@@ -55,7 +55,7 @@ Fingerprint2.get(function(components){
     const values = components.map(c => c.value).join("");
     const hash = Fingerprint2.x64hash128(values, 31);
 
-    fetch("/api/save-fingerprint", {
+    fetch("/save-fingerprint", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({ fingerprint: hash })
