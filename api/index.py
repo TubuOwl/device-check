@@ -5,40 +5,27 @@ import traceback
 
 app = Flask(__name__)
 
-def get_db_connection():
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise Exception("DATABASE_URL not set")
-
-    # pastikan ssl
-    if "sslmode=" not in db_url:
-        db_url += ("&" if "?" in db_url else "?") + "sslmode=require"
-
-    return psycopg2.connect(db_url, connect_timeout=5)
-
 @app.route("/")
 def index():
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        db_url = os.environ.get("DATABASE_URL")
+        if not db_url:
+            return jsonify({
+                "status": "ERROR",
+                "detail": "DATABASE_URL not set"
+            }), 500
 
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS user_fingerprints (
-                id SERIAL PRIMARY KEY,
-                fingerprint TEXT,
-                user_agent TEXT,
-                ip_address TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
+        # paksa ssl (Neon wajib)
+        if "sslmode=" not in db_url:
+            db_url += ("&" if "?" in db_url else "?") + "sslmode=require"
 
-        conn.commit()
-        cur.close()
+        # COBA CONNECT
+        conn = psycopg2.connect(db_url, connect_timeout=5)
         conn.close()
 
         return jsonify({
             "status": "OK",
-            "message": "Table user_fingerprints created (or already exists)"
+            "message": "Connected to PostgreSQL successfully"
         })
 
     except Exception as e:
