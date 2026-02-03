@@ -1,136 +1,77 @@
-from flask import Flask, request, jsonify
-import psycopg2
-import psycopg2.errors
-import os, json, urllib.parse
+from flask import Flask, request, Response, jsonify
+import psycopg2, os, json, base64
 
 app = Flask(__name__)
 
-# ================= DB =================
-def get_db():
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise Exception("DATABASE_URL not set")
+DATABASE_URL = os.environ["DATABASE_URL"]
 
-    if "sslmode" not in url:
-        url += "?sslmode=require"
+def db():
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
 
-    return psycopg2.connect(url)
 
-# =================================================
-# API 1️⃣ : RECORD DEVICE (IMG BEACON, ANTI DOUBLE)
-# =================================================
-@app.route("/api/check", methods=["GET"])
+# === RECORD DEVICE (IMG BEACON) ===
+@app.route("/api/check")
 def check_device():
+    d = request.args.get("d")
+    if not d:
+        return Response(status=204)
+
     try:
-        raw = request.args.get("d")
-        if not raw:
-            return jsonify({"status": "no_data"}), 200
+        data = json.loads(d)
+    except:
+        return Response(status=204)
 
-        data = json.loads(urllib.parse.unquote(raw))
+    username = data.get("name")
+    device_id = data.get("id")
+    ua = data.get("ua")
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
 
-        username = data.get("name")
-        device_id = data.get("id")
-        ua = data.get("ua")
-        ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    if not device_id:
+        return Response(status=204)
 
-        if not device_id:
-            return jsonify({"status": "no_device_id"}), 200
+    conn = db()
+    cur = conn.cursor()
 
-        conn = get_db()
-        cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO device_records (username, device_id, user_agent, ip_address)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (device_id) DO NOTHING
+    """, (username, device_id, ua, ip))
 
-        # 🔍 CEK DEVICE ID
-        cur.execute(
-            "SELECT id, username, created_at FROM device_records WHERE device_id=%s",
-            (device_id,)
-        )
-        row = cur.fetchone()
+    conn.commit()
+    cur.close()
+    conn.close()
 
-        if row:
-            cur.close()
-            conn.close()
-            return jsonify({
-                "status": "exists",
-                "device_id": device_id,
-                "first_seen": row[2].isoformat()
-            }), 200
+    # === RETURN IMAGE (ANTI ORB) ===
+    pixel = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIW2P4//8/AwAI/AL+KD7XAAAAAElFTkSuQmCC"
+    )
 
-        # ➕ INSERT JIKA BELUM ADA
-        cur.execute(
-            """
-            INSERT INTO device_records
-            (username, device_id, user_agent, ip_address)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id, created_at
-            """,
-            (username, device_id, ua, ip)
-        )
-
-        new = cur.fetchone()
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        return jsonify({
-            "status": "inserted",
-            "id": new[0],
-            "device_id": device_id,
-            "created_at": new[1].isoformat()
-        }), 201
-
-    except psycopg2.errors.UniqueViolation:
-        # safety net (kalau hit bersamaan)
-        return jsonify({
-            "status": "exists",
-            "device_id": device_id
-        }), 200
-
-    except Exception as e:
-        print("ERROR:", e)
-        return jsonify({"status": "error"}), 500
+    return Response(pixel, mimetype="image/png")
 
 
-# =====================================
-# API 2️⃣ : GET WHITELIST (JSON OUTPUT)
-# =====================================
-@app.route("/api/whitelist", methods=["GET"])
+# === GET DATA JSON ===
+@app.route("/api/whitelist")
 def whitelist():
-    try:
-        conn = get_db()
-        cur = conn.cursor()
+    conn = db()
+    cur = conn.cursor()
 
-        cur.execute("""
-            SELECT id, username, device_id, user_agent, ip_address, created_at
-            FROM device_records
-            ORDER BY created_at DESC
-        """)
+    cur.execute("""
+        SELECT username, device_id, user_agent, ip_address, created_at
+        FROM device_records
+        ORDER BY created_at DESC
+    """)
 
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
 
-        devices = []
-        for r in rows:
-            devices.append({
-                "id": r[0],
-                "username": r[1],
-                "device_id": r[2],
-                "user_agent": r[3],
-                "ip_address": r[4],
-                "created_at": r[5].isoformat()
-            })
-
-        return jsonify({
-            "count": len(devices),
-            "devices": devices
-        }), 200
-
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-
-
-if __name__ == "__main__":
-    app.run()
+    return jsonify([
+        {
+            "username": r[0],
+            "device_id": r[1],
+            "user_agent": r[2],
+            "ip": r[3],
+            "created_at": r[4].isoformat()
+        } for r in rows
+    ])
