@@ -1,33 +1,26 @@
-from flask import Flask, request, jsonify
-import psycopg2
-import os
-import json
-import urllib.parse
+from flask import Flask, request
+import psycopg2, os, json, urllib.parse
 
 app = Flask(__name__)
 
-# ================= DATABASE =================
 def get_db():
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
+    url = os.environ.get("DATABASE_URL")
+    if not url:
         raise Exception("DATABASE_URL not set")
+    if "sslmode" not in url:
+        url += "?sslmode=require"
+    return psycopg2.connect(url)
 
-    if "sslmode" not in db_url:
-        db_url += "?sslmode=require"
-
-    return psycopg2.connect(db_url)
-
-# ================= API (IMG BEACON) =================
-@app.route("/api/check")
+@app.route("/api/check", methods=["GET"])
 def check():
     try:
         raw = request.args.get("d")
         if not raw:
-            return "no data", 400
+            return "", 204
 
         data = json.loads(urllib.parse.unquote(raw))
 
-        username = data.get("name")
+        name = data.get("name")
         device_id = data.get("id")
         ua = data.get("ua")
         ip = request.headers.get("X-Forwarded-For", request.remote_addr)
@@ -40,19 +33,15 @@ def check():
             (username, device_id, user_agent, ip_address)
             VALUES (%s, %s, %s, %s)
             """,
-            (username, device_id, ua, ip)
+            (name, device_id, ua, ip)
         )
         conn.commit()
         cur.close()
         conn.close()
 
-        # response HARUS image-safe
+        # IMG beacon MUST return empty
         return "", 204
 
     except Exception as e:
         print("ERROR:", e)
         return "", 204
-
-
-if __name__ == "__main__":
-    app.run()
