@@ -31,59 +31,84 @@ def init_db():
     cur.close()
     conn.close()
 
-# Init DB (safe for serverless)
+# Init DB (serverless-safe)
 try:
     init_db()
 except Exception as e:
     print("DB init error:", e)
 
 # ================= ROUTES =================
+
 @app.route("/")
 def index():
     return render_template_string("""
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<title>Fingerprint Tracker</title>
+<meta charset="UTF-8">
+<title>Device Check</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fingerprintjs2/2.1.0/fingerprint2.min.js"></script>
 </head>
 <body>
-<h3>Fingerprinting...</h3>
+<h3>Recording device...</h3>
+
 <script>
 Fingerprint2.get(function(components){
-    const values = components.map(c => c.value).join("");
-    const hash = Fingerprint2.x64hash128(values, 31);
+    const raw = components.map(c => c.value).join("");
+    const hash = Fingerprint2.x64hash128(raw, 31);
 
-    fetch("/save-fingerprint", {
+    fetch("/api/save-fingerprint", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({ fingerprint: hash })
-    }).then(()=>document.body.innerHTML="Device recorded ✔");
+    })
+    .then(r => r.json())
+    .then(() => {
+        document.body.innerHTML = "Device recorded ✔";
+    })
+    .catch(() => {
+        document.body.innerHTML = "Error recording device";
+    });
 });
 </script>
 </body>
 </html>
 """)
 
-@app.route("/save-fingerprint", methods=["POST"])
-def save_fingerprint():
-    data = request.json
+# ===== CORE SAVE FUNCTION =====
+def _save_fingerprint():
+    data = request.get_json(silent=True) or {}
     fingerprint = data.get("fingerprint")
+
     if not fingerprint:
-        return jsonify({"error":"missing fingerprint"}), 400
+        return jsonify({"error": "fingerprint required"}), 400
 
     ua = request.headers.get("User-Agent")
     ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    ip = ip.split(",")[0] if ip else None
 
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO user_fingerprints (fingerprint, user_agent, ip_address) VALUES (%s,%s,%s)",
+        "INSERT INTO user_fingerprints (fingerprint, user_agent, ip_address) VALUES (%s, %s, %s)",
         (fingerprint, ua, ip)
     )
     conn.commit()
     cur.close()
     conn.close()
 
-    return jsonify({"ok":True})
+    return jsonify({"status": "ok"})
+
+# ===== ROUTE ALIASES =====
+@app.route("/save-fingerprint", methods=["POST"])
+def save_fp():
+    return _save_fingerprint()
+
+@app.route("/api/save-fingerprint", methods=["POST"])
+def save_fp_api():
+    return _save_fingerprint()
+
+# ===== DEBUG =====
+@app.route("/ping")
+def ping():
+    return "OK"
